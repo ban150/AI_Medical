@@ -98,6 +98,12 @@ def main():
     for s in SPLITS:
         for c in CLASSES:
             groups[f'SPLITS/{s}/{c}'] = os.path.join(root, 'SPLITS', s, c)
+    if not os.path.isdir(root):
+        raise SystemExit(f'ERREUR : le dossier --root n\'existe pas : {root}')
+    print(f'Contenu de {root} : {sorted(os.listdir(root))}')
+    for label, folder in groups.items():
+        if not os.path.isdir(folder):
+            print(f'  ATTENTION : dossier introuvable -> {label} ({folder})')
     # RSNA peut aussi être posé directement dans DATA (cf. Fusion.py)
     extra_rsna = os.path.join(root, 'stage_2_train_images')
 
@@ -109,6 +115,9 @@ def main():
     if os.path.isdir(extra_rsna):
         dcms['RSNA'] = dcms['RSNA'] + list_files(extra_rsna, DCM_EXT)
 
+    if not any(files.values()) and not any(dcms.values()):
+        raise SystemExit('ERREUR : aucune image trouvée (extensions lues : png, jpg, jpeg, dcm). '
+                         'Vérifiez --root et les noms de dossiers ci-dessus ; aucun rapport écrit.')
     # comptage par sous-dossier de premier niveau pour les sources
     rows = []
     for label in ('PAUL', 'RSNA', 'TB_RAHMAN'):
