@@ -127,21 +127,30 @@ Backbone gelé, 20 époques, Adam (lr 1e-4), lots de 32, RTX 5060. Le seuil de d
 | … dont RSNA (1 703) | ResNet50 / MobileNetV2 | 0,906 / 0,898 | 0,774 / 0,732 | 0,892 / 0,900 | |
 | **Nigeria, externe (190)** | ResNet50 | **0,586** [0,502 ; 0,663] | 0,546 | 0,538 | 0,542 |
 | **Nigeria, externe (190)** | MobileNetV2 | **0,603** [0,515 ; 0,680] | 0,557 | 0,591 | 0,574 |
-| PAUL → RSNA | ResNet50 / MobileNetV2 | ⏳ | | | |
-| RSNA → PAUL | ResNet50 / MobileNetV2 | ⏳ | | | |
+| PAUL → RSNA, test RSNA (1 703) | ResNet50 | **0,713** [0,689 ; 0,737] | 0,983 | **0,114** | 0,564 |
+| PAUL → RSNA, test RSNA (1 703) | MobileNetV2 | **0,705** [0,679 ; 0,729] | 0,980 | **0,112** | 0,561 |
+| PAUL → RSNA, Nigeria (190) | ResNet50 / MobileNetV2 | 0,593 / **0,627** [0,544 ; 0,706] | 0,485 / 0,639 | 0,667 / 0,484 | |
+| RSNA → PAUL, test PAUL (871) | ResNet50 | **0,732** [0,693 ; 0,766] | 0,570 | 0,778 | 0,626 |
+| RSNA → PAUL, test PAUL (871) | MobileNetV2 | **0,534** [0,488 ; 0,575] | 0,198 | 0,876 | 0,380 |
+| RSNA → PAUL, Nigeria (190) | ResNet50 / MobileNetV2 | 0,532 / 0,546 | 0,330 / 0,144 | 0,774 / 0,946 | |
 
 **Lecture (à dire honnêtement au jury) :**
 - **Le test interne est bon** (AUC ≈ 0,92). Il est mesuré sans fuite : par patient, sans doublon, contrôlé.
 - **Sur le jeu nigérian, le modèle est à peine meilleur que le hasard.** L'AUC vaut 0,59 à 0,60, et la borne basse de l'intervalle touche 0,50. Le score moyen donné aux pneumonies (≈ 0,50 à 0,53) est à peine plus élevé que celui des radios normales (≈ 0,43 à 0,46).
 - **C'est précisément ce que le test de biais laissait craindre (Q15).** Ce que le modèle apprend reste lié aux appareils et aux populations de PAUL et RSNA, et ne se transfère pas à des radios nigérianes d'autres hôpitaux et d'autres appareils.
 - **C'est un résultat en soi, et un argument pour le mémoire :** la validation externe est indispensable, et un bon score interne ne garantit pas une utilisation en Afrique.
+- **Évaluations croisées (sessions 2 et 3) : la preuve du biais de source.**
+  - Un modèle entraîné sur PAUL atteint 0,96 d'AUC en validation sur PAUL, mais **0,71 sur RSNA**. Sur les adultes, il prédit « pneumonie » presque partout : sensibilité 0,98, mais spécificité 0,11.
+  - Dans l'autre sens, en passant de RSNA à PAUL, l'AUC tombe de 0,90 à **0,73** (ResNet50), voire à **0,53** (MobileNetV2, quasiment le hasard).
+  - Conclusion : ce qu'un modèle apprend sur une population ne se transfère pas à l'autre. La chute observée sur le jeu nigérian n'est donc pas une anomalie.
+- **Indice (à confirmer) :** le jeu nigérian, composé d'enfants, est le mieux prédit par le modèle entraîné **sur des enfants** (PAUL → Nigeria, MobileNetV2 : 0,627), et le moins bien par celui entraîné sur des adultes (RSNA → Nigeria : 0,53 à 0,55). Mais les intervalles de confiance se chevauchent, donc ce n'est **pas significatif** avec 190 images.
 - Les deux modèles sont **encore en progrès à l'époque 20** (AUC de validation 0,920 et 0,907) : l'entraînement n'a pas convergé.
 
 **Pistes d'amélioration ⏳ (à tester, puis à noter ici) :**
 1. Entraîner plus longtemps et **dégeler les dernières couches** du réseau (fine-tuning).
 2. Augmentation de données plus forte : contraste, luminosité, flou, bruit. Le but est d'imiter la diversité des appareils.
 3. Ajuster le seuil de décision sur la validation, plutôt que 0,5.
-4. Évaluations croisées PAUL → RSNA et RSNA → PAUL, pour mesurer la part du biais de source.
+4. ✅ Évaluations croisées faites (voir ci-dessus).
 5. Grad-CAM sur le jeu nigérian : où le modèle regarde-t-il ?
 6. ⚠ Ne **jamais** régler le modèle en regardant les scores nigérians : sinon, ce n'est plus un test externe.
 
@@ -161,5 +170,6 @@ Backbone gelé, 20 époques, Adam (lr 1e-4), lots de 32, RTX 5060. Le seuil de d
 ---
 
 ### Journal des mises à jour
+- 23/10/2026 : sessions 2 et 3 (croisées) terminées ; biais de source confirmé.
 - 23/10/2026 : session 1 (principal) terminée ; résultats internes et nigérians ajoutés en section 6.
 - 23/10/2026 : création. Données, split et test de biais faits ; entraînement à venir.
