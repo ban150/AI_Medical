@@ -46,7 +46,7 @@ Graine 42, 70/15/15, découpage par patient, strates source × classe.
 | RSNA | PNEUMONIA | 4 254 | 877 | 881 | 6 012 |
 | **Total** | | **12 039** | **2 574** | **2 574** | **17 187** |
 
-Proportion de PNEUMONIA en train : PAUL 72,8 %, RSNA 52,9 %. La pondération est lue dans le manifeste : `pos_weight` = 4 855 / 7 180 = **0,676**. Elle remplace les effectifs en dur 22 463 / 20 808.
+Proportion de PNEUMONIA en train : PAUL 72,8 %, RSNA 53,4 %. La pondération est lue dans le manifeste : `pos_weight` = 4 813 / 7 226 = **0,666**. Elle remplace les effectifs en dur 22 463 / 20 808.
 
 ### Images exclues, toutes listées dans `manifest.csv`
 
