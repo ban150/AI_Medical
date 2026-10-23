@@ -82,6 +82,15 @@ def main() -> None:
     ap.add_argument("--sortie", type=Path, default=Path(__file__).resolve().parent / "models" / "checkpoints_clean")
     ap.add_argument("--resultats", type=Path, default=Path(__file__).resolve().parent.parent / "resultats",
                     help="dossier des scores, courbes et matrices de confusion (un sous-dossier par expérience)")
+    ap.add_argument("--version", default="v1",
+                    help="nom de la variante ; v1 = réglages d'origine. Les résultats vont dans "
+                         "resultats/<experience>_<version> (sauf v1), pour ne rien écraser")
+    ap.add_argument("--degeler", type=int, default=0,
+                    help="nombre de derniers blocs du réseau à ré-entraîner (0 = réseau gelé, comme en v1)")
+    ap.add_argument("--lr-backbone", type=float, default=1e-5,
+                    help="taux d'apprentissage des blocs dégelés (plus faible que celui de la tête)")
+    ap.add_argument("--augmentation", choices=["legere", "forte"], default="legere",
+                    help="forte = contraste, luminosité, gamma, flou, bruit, recadrage (imite la diversité des appareils)")
     ap.add_argument("--essai", action="store_true", help="essai rapide : 64 images par jeu, 1 époque")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
@@ -110,7 +119,8 @@ def main() -> None:
     np.random.seed(a.graine)
     torch.manual_seed(a.graine)
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    moy = np.array([0.485, 0.456, 0.406], dtype=np.float32)[:, None, None]
+    amp = device == "cuda" and a.degeler > 0  # précision mixte : accélère le ré-entraînement des blocs dégelés
+    moy =np.array([0.485, 0.456, 0.406], dtype=np.float32)[:, None, None]
     ect = np.array([0.229, 0.224, 0.225], dtype=np.float32)[:, None, None]
 
     class Radios(Dataset):
@@ -130,9 +140,22 @@ def main() -> None:
             if self.aug:
                 if random.random() < 0.5:
                     img = img[:, ::-1]
-                ang = random.uniform(-8, 8)
-                m = cv2.getRotationMatrix2D((a.taille / 2, a.taille / 2), ang, 1.0)
+                forte = a.augmentation == "forte"
+                ang = random.uniform(-10, 10) if forte else random.uniform(-8, 8)
+                echelle = random.uniform(1.0, 1.15) if forte else 1.0  # léger zoom = recadrage aléatoire
+                m = cv2.getRotationMatrix2D((a.taille / 2, a.taille / 2), ang, echelle)
+                if forte:
+                    m[:, 2] += np.random.uniform(-0.05, 0.05, 2) * a.taille  # petit décalage
                 img = cv2.warpAffine(np.ascontiguousarray(img), m, (a.taille, a.taille), borderMode=cv2.BORDER_REFLECT)
+                if forte:  # imite des appareils et des expositions différentes
+                    f32 = img.astype(np.float32) / 255.0
+                    f32 = np.clip(f32 * random.uniform(0.8, 1.2) + random.uniform(-0.08, 0.08), 0, 1)  # contraste, luminosité
+                    f32 = f32 ** random.uniform(0.7, 1.4)  # gamma
+                    if random.random() < 0.3:
+                        f32 = cv2.GaussianBlur(f32, (0, 0), random.uniform(0.5, 1.5))
+                    if random.random() < 0.3:
+                        f32 = np.clip(f32 + np.random.normal(0, random.uniform(0.01, 0.03), f32.shape), 0, 1)
+                    img = (f32 * 255).astype(np.uint8)
             x = (np.repeat(img[None].astype(np.float32) / 255.0, 3, axis=0) - moy) / ect
             return torch.from_numpy(x), torch.tensor(self.y[i], dtype=torch.float32)
 
@@ -140,19 +163,20 @@ def main() -> None:
         return DataLoader(Radios(d, aug), batch_size=a.batch_size, shuffle=melange, num_workers=0,
                           pin_memory=device == "cuda")
 
-    def evaluer(model, loader, crit=None):
+    def evaluer(model, loader, crit=None, seuil=0.5):
         """Retourne (métriques, y, scores). Ajoute sensibilité, spécificité et perte si crit est fourni."""
         model.eval()
         ys, ss, pertes = [], [], []
         with torch.no_grad():
             for x, y in loader:
-                logit = model(x.to(device)).view(-1)
+                with torch.autocast("cuda", dtype=torch.float16, enabled=amp):
+                    logit = model(x.to(device)).view(-1).float()
                 if crit is not None:
                     pertes.append(float(crit(logit, y.to(device))) * len(y))
                 ss.append(torch.sigmoid(logit).cpu().numpy())
                 ys.append(y.numpy())
         y, s = np.concatenate(ys).astype(int), np.concatenate(ss)
-        pred = (s >= 0.5).astype(int)
+        pred = (s >= seuil).astype(int)
         met = classification_metrics_dict(y, pred, y_score=s)
         vp, fn = int(((pred == 1) & (y == 1)).sum()), int(((pred == 0) & (y == 1)).sum())
         vn, fp = int(((pred == 0) & (y == 0)).sum()), int(((pred == 1) & (y == 0)).sum())
@@ -182,16 +206,43 @@ def main() -> None:
 
     from AI_Medical.evaluation.medical_metrics import plot_confusion_matrix
 
+    def degeler(model, bb: str, n: int) -> list:
+        """Rend entraînables les n derniers blocs du réseau ; retourne leurs paramètres."""
+        if n <= 0:
+            return []
+        if bb == "resnet50":
+            blocs = [model.layer1, model.layer2, model.layer3, model.layer4][-n:]
+        else:  # mobilenetv2 : 19 blocs « features », regroupés par 4 (le dernier groupe = 3 blocs)
+            f = list(model.features)
+            groupes = [f[0:4], f[4:8], f[8:12], f[12:16], f[16:19]]
+            blocs = [b for g in groupes[-n:] for b in g]
+        params = []
+        for b in blocs:
+            for p in b.parameters():
+                p.requires_grad = True
+                params.append(p)
+        return params
+
+    nom = a.experience if a.version == "v1" else f"{a.experience}_{a.version}"
     a.sortie.mkdir(parents=True, exist_ok=True)
-    dossier_res = a.resultats / a.experience
+    dossier_res = a.resultats / nom
     dossier_res.mkdir(parents=True, exist_ok=True)
     ld = {k: chargeur(t[k], k == "train", k == "train") for k in t}
     lignes = []
     for bb in a.backbones:
         model, opt, crit = build_binary_transfer_model(bb, learning_rate=a.lr)
+        params_bb = degeler(model, bb, a.degeler)
+        if params_bb:  # deux taux : la tête apprend vite, les blocs dégelés lentement (ne pas « oublier » ImageNet)
+            ids = {id(p) for p in params_bb}
+            tete = [p for p in model.parameters() if p.requires_grad and id(p) not in ids]
+            opt = torch.optim.Adam([{"params": tete, "lr": a.lr}, {"params": params_bb, "lr": a.lr_backbone}])
+            print(f"[{bb}] {a.degeler} bloc(s) dégelé(s) : {sum(p.numel() for p in params_bb):,} paramètres "
+                  f"ré-entraînés (lr {a.lr_backbone}), tête lr {a.lr}")
+        planif = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, mode="max", factor=0.5, patience=2)
+        echelle = torch.amp.GradScaler("cuda", enabled=amp)
         model = model.to(device)
         crit.pos_weight = torch.tensor([pos_weight], device=device)
-        ckpt = a.sortie / f"{a.experience}_{bb}_best.pt"
+        ckpt = a.sortie / f"{nom}_{bb}_best.pt"
         meilleur, attente, histo = -1.0, 0, []
         for ep in range(1, a.epochs + 1):
             t0 = time.time()
@@ -199,12 +250,15 @@ def main() -> None:
             somme, n = 0.0, 0
             for x, y in tqdm(ld["train"], desc=f"{bb} époque {ep}", leave=False):
                 opt.zero_grad()
-                loss = crit(model(x.to(device)).view(-1), y.to(device))
-                loss.backward()
-                opt.step()
+                with torch.autocast("cuda", dtype=torch.float16, enabled=amp):
+                    loss = crit(model(x.to(device)).view(-1).float(), y.to(device))
+                echelle.scale(loss).backward()
+                echelle.step(opt)
+                echelle.update()
                 somme, n = somme + float(loss) * len(y), n + len(y)
             mv, _, _ = evaluer(model, ld["val"], crit)
             auc = mv.get("roc_auc", float("nan"))
+            planif.step(auc)
             histo.append({"epoque": ep, "perte_train": somme / n, "perte_val": mv["perte"], "auc_val": auc,
                           "sensibilite_val": mv["sensibilite"], "specificite_val": mv["specificite"],
                           "duree_s": round(time.time() - t0, 1)})
@@ -236,19 +290,30 @@ def main() -> None:
 
         etat = torch.load(ckpt, map_location=device)
         model.load_state_dict(etat["model_state_dict"])
+        # Seuil de décision choisi sur la VALIDATION (indice de Youden : sensibilité + spécificité − 1 maximal),
+        # jamais sur le test ni sur le jeu nigérian. Le seuil 0,5 reste rapporté pour comparaison.
+        from sklearn.metrics import roc_curve
+        _, yv, sv = evaluer(model, ld["val"])
+        fpr, tpr, seuils = roc_curve(yv, sv)
+        seuil_val = float(seuils[np.argmax(tpr - fpr)])
+        print(f"[{bb}] seuil choisi sur la validation (Youden) : {seuil_val:.3f}")
         jeux = ["test"] + (["nigeria"] if a.tester_nigeria else [])
         for jeu in jeux:
-            met, y, s = evaluer(model, ld[jeu])
-            bas, haut = ic_auc(y, s)
-            print_medical_report(met, title=f"{bb} : {jeu} ({a.experience})")
-            print(f"  AUC IC95 % : [{bas:.3f} ; {haut:.3f}]")
-            plot_confusion_matrix(y, (s >= 0.5).astype(int), labels=("NORMAL", "PNEUMONIA"),
-                                  save_path=str(dossier_res / f"confusion_{bb}_{jeu}.png"), show=False)
+            for seuil, etiquette in ((0.5, "0.5"), (seuil_val, "validation")):
+                met, y, s = evaluer(model, ld[jeu], seuil=seuil)
+                bas, haut = ic_auc(y, s)
+                print_medical_report(met, title=f"{bb} : {jeu} ({nom}, seuil {etiquette} = {seuil:.3f})")
+                print(f"  AUC IC95 % : [{bas:.3f} ; {haut:.3f}]  sensibilité {met['sensibilite']:.3f}  "
+                      f"spécificité {met['specificite']:.3f}")
+                suffixe = "" if etiquette == "0.5" else "_seuil_val"
+                plot_confusion_matrix(y, (s >= seuil).astype(int), labels=("NORMAL", "PNEUMONIA"),
+                                      save_path=str(dossier_res / f"confusion_{bb}_{jeu}{suffixe}.png"), show=False)
+                lignes.append({"experience": nom, "modele": bb, "jeu": jeu, "seuil": etiquette,
+                               "valeur_seuil": round(seuil, 4), "epoque_retenue": etat["epoque"],
+                               "auc_val": round(etat["auc_val"], 4),
+                               **{k: round(v, 4) if isinstance(v, float) else v for k, v in met.items()},
+                               "auc_ic95_bas": round(bas, 4), "auc_ic95_haut": round(haut, 4)})
             pd.DataFrame({"y": y, "score": s}).to_csv(dossier_res / f"scores_{bb}_{jeu}.csv", index=False)
-            lignes.append({"experience": a.experience, "modele": bb, "jeu": jeu, "epoque_retenue": etat["epoque"],
-                           "auc_val": round(etat["auc_val"], 4), **{k: round(v, 4) if isinstance(v, float) else v
-                                                                     for k, v in met.items()},
-                           "auc_ic95_bas": round(bas, 4), "auc_ic95_haut": round(haut, 4)})
         pd.DataFrame(lignes).to_csv(dossier_res / "resultats.csv", index=False)
     with open(dossier_res / "parametres.json", "w", encoding="utf-8") as f:
         json.dump({k: str(v) for k, v in vars(a).items()} | {"pos_weight": pos_weight, "pretraitement": pt.VERSION,

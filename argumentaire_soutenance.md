@@ -97,7 +97,14 @@ Dernière mise à jour : 23/10/2026 (données et split terminés, entraînement 
   2. **Test externe nigérian**, jamais vu. ⏳ *Scores à ajouter.*
   3. ⏳ *Si besoin* : Grad-CAM, pour vérifier que le modèle regarde les poumons et pas les marqueurs ou les bords.
 
-**Q16. Pourquoi geler le backbone ?** ⏳
+**Q16. Pourquoi geler le backbone, puis le dégeler en version 2 ?** ✅ / ⏳
+- **v1 (gelé)** : seul le classifieur final apprend. C'est rapide et peu sujet au sur-apprentissage, mais les caractéristiques restent celles d'ImageNet (photos), pas des radios.
+- **v2** : on dégèle les **2 derniers blocs**, avec un taux d'apprentissage 10 fois plus faible (1e-5) pour ne pas effacer ImageNet. On ajoute :
+  - une **augmentation forte** (contraste, luminosité, gamma, flou, bruit, recadrage), pour imiter la diversité des appareils ;
+  - 40 époques maximum, avec réduction automatique du taux si l'AUC de validation stagne ;
+  - un **seuil de décision choisi sur la validation** (indice de Youden), en plus du seuil 0,5.
+- Les exemples d'augmentation sont dans `resultats/exemples_augmentation_forte.png`.
+- ⏳ Comparer v1 et v2 (test interne, croisé, Nigeria). **Règle :** le choix entre v1 et v2 se fait sur la **validation**, jamais sur le jeu nigérian.
 - C'est l'apprentissage par transfert classique pour un jeu de taille moyenne. ⏳ *Si un fine-tuning partiel est testé, comparer.*
 
 ## 5. Évaluation
@@ -170,6 +177,7 @@ Backbone gelé, 20 époques, Adam (lr 1e-4), lots de 32, RTX 5060. Le seuil de d
 ---
 
 ### Journal des mises à jour
+- 23/10/2026 : version 2 préparée (dégel, augmentation forte, seuil de validation) ; à lancer depuis PyCharm (configurations 6, 7, 8).
 - 23/10/2026 : sessions 2 et 3 (croisées) terminées ; biais de source confirmé.
 - 23/10/2026 : session 1 (principal) terminée ; résultats internes et nigérians ajoutés en section 6.
 - 23/10/2026 : création. Données, split et test de biais faits ; entraînement à venir.
