@@ -7,7 +7,7 @@ SPLIT : attribue train / val / test aux images retenues de GOGETA_CLEAN (colonne
 - « Même patient probable » : le PatientID de RSNA identifie une IMAGE, pas une personne (RSNA vient de
   NIH ChestX-ray14, qui contient des examens de suivi). Deux images d'une même source dont les vignettes
   sont très corrélées (r ≥ 0,92) ou dont le pHash est à ≤ 2 sont donc mises dans le même split
-  (heuristique : réduit la fuite, ne la garantit pas nulle ; voir controle_quasi_doublons.csv).
+  (complément de sécurité ; le vrai patient RSNA vient de la correspondance NIH, voir fusion_clean).
 - Stratifié par source ET par classe : chaque strate (source, classe) est découpée séparément,
   à 70 / 15 / 15 % en nombre d'images, de façon gloutonne (le split le plus en retard reçoit le patient suivant).
 - Contrôles bloquants : zéro hash source commun, zéro patient commun, zéro fichier PNG identique

@@ -42,9 +42,9 @@ Graine 42, 70/15/15, découpage par patient, strates source × classe.
 |---|---|---:|---:|---:|---:|
 | PAUL | NORMAL | 1 109 | 236 | 234 | 1 579 |
 | PAUL | PNEUMONIA | 2 972 | 636 | 637 | 4 245 |
-| RSNA | NORMAL | 3 746 | 801 | 804 | 5 351 |
-| RSNA | PNEUMONIA | 4 208 | 903 | 901 | 6 012 |
-| **Total** | | **12 035** | **2 576** | **2 576** | **17 187** |
+| RSNA | NORMAL | 3 704 | 825 | 822 | 5 351 |
+| RSNA | PNEUMONIA | 4 254 | 877 | 881 | 6 012 |
+| **Total** | | **12 039** | **2 574** | **2 574** | **17 187** |
 
 Proportion de PNEUMONIA en train : PAUL 72,8 %, RSNA 52,9 %. La pondération est lue dans le manifeste : `pos_weight` = 4 855 / 7 180 = **0,676**. Elle remplace les effectifs en dur 22 463 / 20 808.
 
@@ -96,6 +96,9 @@ J'ai lancé un `--reset` (reconstruction complète), puis **10 relances** de fus
 
 ## 4. Split : identifiants patients
 
+**Mise à jour du 23/10 : vrais patients RSNA.** La correspondance officielle RSNA ↔ NIH a été téléchargée dans `DATA\RSNA_NIH_MAPPING\` (`pneumonia-challenge-dataset-mappings_2018.json`, 16,8 Mo, source RSNA). Les 11 363 images RSNA retenues appartiennent à **6 334 vrais patients** (1 699 en ont plusieurs, jusqu'à 47). Avec l'ancien découpage, 1 038 de ces patients étaient répartis sur plusieurs splits. Le patient RSNA est désormais `RSNA:NIH-<numéro>`. Après le nouveau split : **0 patient sur plusieurs splits**, et le résultat est identique d'une relance à l'autre. Le regroupement par similarité, décrit ci-dessous, reste en complément. La partie « Limite » de ce paragraphe est réglée.
+
+
 - **RSNA** : `PatientID` lu dans le DICOM, égal au nom de fichier pour les 26 684 images.
   - **Limite :** cet identifiant désigne une **image**, pas une personne. RSNA vient de NIH ChestX-ray14, qui contient des examens de suivi : les planches montrent des paires d'examens d'un même patient sous deux identifiants.
   - **Parade :** deux images d'une même source sont mises dans le même split si r ≥ 0,92 ou si leur pHash est à 2 ou moins. Cela fait 346 regroupements ; le plus gros groupe compte 17 images à 0,92, alors qu'à 0,90 il en compterait 118. 38 groupes mêlent les deux classes et forment une strate à part.
@@ -115,9 +118,9 @@ J'ai lancé un `--reset` (reconstruction complète), puis **10 relances** de fus
 
 | Expérience | train | val | test | test NORMAL/PNEUMONIA |
 |---|---:|---:|---:|---|
-| `principal` (PAUL+RSNA) | 12 035 | 2 576 | 2 576 | 1 038 / 1 538 |
-| `paul_vers_rsna` | 4 081 (PAUL) | 872 (PAUL) | 1 705 (RSNA) | 804 / 901 |
-| `rsna_vers_paul` | 7 954 (RSNA) | 1 704 (RSNA) | 871 (PAUL) | 234 / 637 |
+| `principal` (PAUL+RSNA) | 12 039 | 2 574 | 2 574 | 1 056 / 1 518 |
+| `paul_vers_rsna` | 4 081 (PAUL) | 872 (PAUL) | 1 703 (RSNA) | 822 / 881 |
+| `rsna_vers_paul` | 7 958 (RSNA) | 1 702 (RSNA) | 871 (PAUL) | 234 / 637 |
 
 Le jeu nigérian (190 images) n'est évalué qu'avec `--tester-nigeria`. Il ne sert jamais à l'entraînement ni à la validation. Il reçoit le même prétraitement, appliqué à la volée, et ses fichiers restent en lecture seule.
 

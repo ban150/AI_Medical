@@ -56,6 +56,7 @@ from AI_Medical.data import pretraitement as pt
 RACINE_DEFAUT = Path(os.environ.get("PNEUMONIA_DATA_ROOT", r"C:\Project_D\Z_Soutenance\DATA"))
 ZIP_NIGERIA_DEFAUT = Path(r"C:\Project_D\Z_Soutenance\NG Pneum Dataset.zip")
 MD5_NIGERIA = "a04ce100eb5ef6df4cc0352efa25028c"  # publié sur Zenodo (DOI 10.5281/zenodo.14185822)
+MAPPING_NIH = RACINE_DEFAUT / "RSNA_NIH_MAPPING" / "pneumonia-challenge-dataset-mappings_2018.json"
 EXCLUSIONS_MANUELLES = Path(__file__).resolve().parent / "config" / "exclusions_manuelles.csv"
 COLONNES = ["chemin", "source", "classe", "hash", "split", "patient",
             "classe_source", "chemin_source", "phash", "doublon_de"]
@@ -285,12 +286,20 @@ def main() -> None:
     rs = R / "RSNA"
     det = pd.read_csv(rs / "stage_2_detailed_class_info.csv").drop_duplicates("patientId")
     lab = pd.read_csv(rs / "stage_2_train_labels.csv").groupby("patientId")["Target"].max()
+    # Vrai patient : correspondance officielle RSNA → NIH ChestX-ray14 (img_id « 00012773_000.png »
+    # → patient NIH 00012773). Sans ce fichier, le PatientID RSNA n'identifie qu'une image.
+    nih = {}
+    if MAPPING_NIH.is_file():
+        import json
+        nih = {x["subset_img_id"]: x["img_id"].split("_")[0] for x in json.loads(MAPPING_NIH.read_text())}
+    else:
+        print(f"ATTENTION : {MAPPING_NIH} absent → patient RSNA = identifiant d'image (fuite possible)")
     for pid, c in sorted(zip(det["patientId"], det["class"])):
         classe = RSNA_CLASSES[c]
         cible = int(lab[pid])
         assert (classe == "PNEUMONIA") == (cible == 1), f"incohérence RSNA {pid}"
         items.append({"source": "RSNA", "classe_source": c, "classe": classe,
-                      "abs": str(rs / "stage_2_train_images" / f"{pid}.dcm"), "patient": f"RSNA:{pid}"})
+                      "abs": str(rs / "stage_2_train_images" / f"{pid}.dcm"), "patient": f"RSNA:NIH-{nih[pid]}" if pid in nih else f"RSNA:{pid}"})
     tb = sorted(str(p) for p in (R / "TB_RAHMAN").rglob("*") if p.suffix.lower() in IMG_EXT and not p.name.startswith("."))
     ngd = R / "NIGERIA_TEST"
     if not ngd.is_dir():
