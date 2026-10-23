@@ -80,10 +80,16 @@ def main() -> None:
     ap.add_argument("--graine", type=int, default=42)
     ap.add_argument("--tester-nigeria", action="store_true", help="évaluation finale sur NIGERIA_TEST")
     ap.add_argument("--sortie", type=Path, default=Path(__file__).resolve().parent / "models" / "checkpoints_clean")
+    ap.add_argument("--resultats", type=Path, default=Path(__file__).resolve().parent.parent / "resultats",
+                    help="dossier des scores, courbes et matrices de confusion (un sous-dossier par expérience)")
+    ap.add_argument("--essai", action="store_true", help="essai rapide : 64 images par jeu, 1 époque")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
 
     t = charger_tables(a.racine, a.experience)
+    if a.essai:  # vérification rapide de bout en bout : 64 images par jeu, 1 époque, résultats à part
+        t = {k: d.sample(n=min(64, len(d)), random_state=0) for k, d in t.items()}
+        a.epochs, a.resultats, a.sortie = 1, a.resultats / "_essai", a.sortie / "_essai"
     print(f"Expérience « {a.experience} » (effectifs lus dans manifest.csv) :")
     pos_weight = resume(t)
     if a.dry_run:
@@ -134,45 +140,121 @@ def main() -> None:
         return DataLoader(Radios(d, aug), batch_size=a.batch_size, shuffle=melange, num_workers=0,
                           pin_memory=device == "cuda")
 
-    def evaluer(model, loader):
+    def evaluer(model, loader, crit=None):
+        """Retourne (métriques, y, scores). Ajoute sensibilité, spécificité et perte si crit est fourni."""
         model.eval()
-        ys, ss = [], []
+        ys, ss, pertes = [], [], []
         with torch.no_grad():
             for x, y in loader:
-                ss.append(torch.sigmoid(model(x.to(device)).view(-1)).cpu().numpy())
+                logit = model(x.to(device)).view(-1)
+                if crit is not None:
+                    pertes.append(float(crit(logit, y.to(device))) * len(y))
+                ss.append(torch.sigmoid(logit).cpu().numpy())
                 ys.append(y.numpy())
         y, s = np.concatenate(ys).astype(int), np.concatenate(ss)
-        return classification_metrics_dict(y, (s >= 0.5).astype(int), y_score=s)
+        pred = (s >= 0.5).astype(int)
+        met = classification_metrics_dict(y, pred, y_score=s)
+        vp, fn = int(((pred == 1) & (y == 1)).sum()), int(((pred == 0) & (y == 1)).sum())
+        vn, fp = int(((pred == 0) & (y == 0)).sum()), int(((pred == 1) & (y == 0)).sum())
+        met.update({"sensibilite": vp / max(vp + fn, 1), "specificite": vn / max(vn + fp, 1),
+                    "VP": vp, "FN": fn, "VN": vn, "FP": fp, "n": int(len(y))})
+        if crit is not None:
+            met["perte"] = sum(pertes) / max(len(y), 1)
+        return met, y, s
+
+    def ic_auc(y, s, n_boot=1000):
+        """Intervalle de confiance à 95 % de l'AUC par bootstrap (graine fixe)."""
+        from sklearn.metrics import roc_auc_score
+        rng = np.random.default_rng(a.graine)
+        vals = []
+        for _ in range(n_boot):
+            i = rng.integers(0, len(y), len(y))
+            if len(set(y[i])) == 2:
+                vals.append(roc_auc_score(y[i], s[i]))
+        return (float(np.percentile(vals, 2.5)), float(np.percentile(vals, 97.5))) if vals else (float("nan"),) * 2
+
+    import json
+    import time
+
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    from AI_Medical.evaluation.medical_metrics import plot_confusion_matrix
 
     a.sortie.mkdir(parents=True, exist_ok=True)
+    dossier_res = a.resultats / a.experience
+    dossier_res.mkdir(parents=True, exist_ok=True)
     ld = {k: chargeur(t[k], k == "train", k == "train") for k in t}
+    lignes = []
     for bb in a.backbones:
         model, opt, crit = build_binary_transfer_model(bb, learning_rate=a.lr)
         model = model.to(device)
         crit.pos_weight = torch.tensor([pos_weight], device=device)
         ckpt = a.sortie / f"{a.experience}_{bb}_best.pt"
-        meilleur, attente = -1.0, 0
+        meilleur, attente, histo = -1.0, 0, []
         for ep in range(1, a.epochs + 1):
+            t0 = time.time()
             model.train()
+            somme, n = 0.0, 0
             for x, y in tqdm(ld["train"], desc=f"{bb} époque {ep}", leave=False):
                 opt.zero_grad()
                 loss = crit(model(x.to(device)).view(-1), y.to(device))
                 loss.backward()
                 opt.step()
-            auc = evaluer(model, ld["val"]).get("roc_auc", float("nan"))
-            print(f"[{bb}] époque {ep:02d} AUC val = {auc:.4f}")
+                somme, n = somme + float(loss) * len(y), n + len(y)
+            mv, _, _ = evaluer(model, ld["val"], crit)
+            auc = mv.get("roc_auc", float("nan"))
+            histo.append({"epoque": ep, "perte_train": somme / n, "perte_val": mv["perte"], "auc_val": auc,
+                          "sensibilite_val": mv["sensibilite"], "specificite_val": mv["specificite"],
+                          "duree_s": round(time.time() - t0, 1)})
+            print(f"[{bb}] époque {ep:02d} perte train {somme / n:.4f} | perte val {mv['perte']:.4f} | "
+                  f"AUC val {auc:.4f} | {time.time() - t0:.0f} s", flush=True)
+            pd.DataFrame(histo).to_csv(dossier_res / f"historique_{bb}.csv", index=False)
             if auc > meilleur:
                 meilleur, attente = auc, 0
-                torch.save({"model_state_dict": model.state_dict(), "auc_val": auc,
+                torch.save({"model_state_dict": model.state_dict(), "auc_val": auc, "epoque": ep,
                             "experience": a.experience, "pretraitement": pt.VERSION}, ckpt)
             else:
                 attente += 1
                 if attente >= a.patience:
+                    print(f"[{bb}] arrêt anticipé (pas de progrès depuis {a.patience} époques)")
                     break
-        model.load_state_dict(torch.load(ckpt, map_location=device)["model_state_dict"])
-        print_medical_report(evaluer(model, ld["test"]), title=f"{bb} : test ({a.experience})")
-        if a.tester_nigeria:
-            print_medical_report(evaluer(model, ld["nigeria"]), title=f"{bb} : test externe nigérian")
+        h = pd.DataFrame(histo)
+        fig, ax = plt.subplots(1, 2, figsize=(11, 4))
+        ax[0].plot(h.epoque, h.perte_train, label="train")
+        ax[0].plot(h.epoque, h.perte_val, label="validation")
+        ax[0].set_title(f"{bb} : perte")
+        ax[0].set_xlabel("époque")
+        ax[0].legend()
+        ax[1].plot(h.epoque, h.auc_val, color="tab:green")
+        ax[1].set_title(f"{bb} : AUC de validation")
+        ax[1].set_xlabel("époque")
+        fig.tight_layout()
+        fig.savefig(dossier_res / f"courbes_{bb}.png", dpi=150)
+        plt.close(fig)
+
+        etat = torch.load(ckpt, map_location=device)
+        model.load_state_dict(etat["model_state_dict"])
+        jeux = ["test"] + (["nigeria"] if a.tester_nigeria else [])
+        for jeu in jeux:
+            met, y, s = evaluer(model, ld[jeu])
+            bas, haut = ic_auc(y, s)
+            print_medical_report(met, title=f"{bb} : {jeu} ({a.experience})")
+            print(f"  AUC IC95 % : [{bas:.3f} ; {haut:.3f}]")
+            plot_confusion_matrix(y, (s >= 0.5).astype(int), labels=("NORMAL", "PNEUMONIA"),
+                                  save_path=str(dossier_res / f"confusion_{bb}_{jeu}.png"), show=False)
+            pd.DataFrame({"y": y, "score": s}).to_csv(dossier_res / f"scores_{bb}_{jeu}.csv", index=False)
+            lignes.append({"experience": a.experience, "modele": bb, "jeu": jeu, "epoque_retenue": etat["epoque"],
+                           "auc_val": round(etat["auc_val"], 4), **{k: round(v, 4) if isinstance(v, float) else v
+                                                                     for k, v in met.items()},
+                           "auc_ic95_bas": round(bas, 4), "auc_ic95_haut": round(haut, 4)})
+        pd.DataFrame(lignes).to_csv(dossier_res / "resultats.csv", index=False)
+    with open(dossier_res / "parametres.json", "w", encoding="utf-8") as f:
+        json.dump({k: str(v) for k, v in vars(a).items()} | {"pos_weight": pos_weight, "pretraitement": pt.VERSION,
+                   "device": device, "torch": torch.__version__}, f, ensure_ascii=False, indent=2)
+    print()
+    print(f"Résultats enregistrés dans {dossier_res}")
 
 
 if __name__ == "__main__":

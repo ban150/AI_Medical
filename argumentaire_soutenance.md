@@ -115,18 +115,35 @@ Dernière mise à jour : 23/10/2026 (données et split terminés, entraînement 
 **Q19. 190 images, est-ce suffisant ?** ⏳
 - C'est un échantillon modeste. On le dira honnêtement, avec des intervalles de confiance. ⏳ *Ajouter la largeur des IC.*
 
-## 6. Résultats ⏳ *(à remplir après l'entraînement)*
+## 6. Résultats (session 1 du 23/10/2026 ; sessions croisées ⏳)
 
-| Expérience | Modèle | AUC | Sensibilité | Spécificité | F1 |
+Backbone gelé, 20 époques, Adam (lr 1e-4), lots de 32, RTX 5060. Le seuil de décision est 0,5. Entre crochets : IC95 % de l'AUC (bootstrap, 1 000 tirages). Fichiers : `resultats/principal/`.
+
+| Expérience | Modèle | AUC [IC95 %] | Sensibilité | Spécificité | Exactitude |
 |---|---|---|---|---|---|
-| principal (test interne) | ResNet50 | | | | |
-| principal (test interne) | MobileNetV2 | | | | |
-| PAUL → RSNA | ResNet50 | | | | |
-| RSNA → PAUL | ResNet50 | | | | |
-| Nigeria (externe) | ResNet50 | | | | |
-| Nigeria (externe) | MobileNetV2 | | | | |
+| principal, test interne (2 574) | ResNet50 | **0,921** [0,910 ; 0,931] | 0,823 | 0,886 | 0,849 |
+| principal, test interne (2 574) | MobileNetV2 | **0,917** [0,906 ; 0,928] | 0,799 | 0,900 | 0,840 |
+| … dont PAUL (871) | ResNet50 / MobileNetV2 | 0,934 / 0,952 | 0,890 / 0,892 | 0,868 / 0,897 | |
+| … dont RSNA (1 703) | ResNet50 / MobileNetV2 | 0,906 / 0,898 | 0,774 / 0,732 | 0,892 / 0,900 | |
+| **Nigeria, externe (190)** | ResNet50 | **0,586** [0,502 ; 0,663] | 0,546 | 0,538 | 0,542 |
+| **Nigeria, externe (190)** | MobileNetV2 | **0,603** [0,515 ; 0,680] | 0,557 | 0,591 | 0,574 |
+| PAUL → RSNA | ResNet50 / MobileNetV2 | ⏳ | | | |
+| RSNA → PAUL | ResNet50 / MobileNetV2 | ⏳ | | | |
 
-**Lecture attendue** : si le score s'effondre en évaluation croisée ou sur le jeu nigérian, c'est le **biais de source** (Q15). Il faut l'assumer et l'expliquer plutôt que le cacher.
+**Lecture (à dire honnêtement au jury) :**
+- **Le test interne est bon** (AUC ≈ 0,92). Il est mesuré sans fuite : par patient, sans doublon, contrôlé.
+- **Sur le jeu nigérian, le modèle est à peine meilleur que le hasard.** L'AUC vaut 0,59 à 0,60, et la borne basse de l'intervalle touche 0,50. Le score moyen donné aux pneumonies (≈ 0,50 à 0,53) est à peine plus élevé que celui des radios normales (≈ 0,43 à 0,46).
+- **C'est précisément ce que le test de biais laissait craindre (Q15).** Ce que le modèle apprend reste lié aux appareils et aux populations de PAUL et RSNA, et ne se transfère pas à des radios nigérianes d'autres hôpitaux et d'autres appareils.
+- **C'est un résultat en soi, et un argument pour le mémoire :** la validation externe est indispensable, et un bon score interne ne garantit pas une utilisation en Afrique.
+- Les deux modèles sont **encore en progrès à l'époque 20** (AUC de validation 0,920 et 0,907) : l'entraînement n'a pas convergé.
+
+**Pistes d'amélioration ⏳ (à tester, puis à noter ici) :**
+1. Entraîner plus longtemps et **dégeler les dernières couches** du réseau (fine-tuning).
+2. Augmentation de données plus forte : contraste, luminosité, flou, bruit. Le but est d'imiter la diversité des appareils.
+3. Ajuster le seuil de décision sur la validation, plutôt que 0,5.
+4. Évaluations croisées PAUL → RSNA et RSNA → PAUL, pour mesurer la part du biais de source.
+5. Grad-CAM sur le jeu nigérian : où le modèle regarde-t-il ?
+6. ⚠ Ne **jamais** régler le modèle en regardant les scores nigérians : sinon, ce n'est plus un test externe.
 
 ## 7. Limites à reconnaître spontanément ✅
 
@@ -144,4 +161,5 @@ Dernière mise à jour : 23/10/2026 (données et split terminés, entraînement 
 ---
 
 ### Journal des mises à jour
+- 23/10/2026 : session 1 (principal) terminée ; résultats internes et nigérians ajoutés en section 6.
 - 23/10/2026 : création. Données, split et test de biais faits ; entraînement à venir.
