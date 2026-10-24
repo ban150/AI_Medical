@@ -141,6 +141,26 @@ Backbone gelé, 20 époques, Adam (lr 1e-4), lots de 32, RTX 5060. Le seuil de d
 | RSNA → PAUL, test PAUL (871) | MobileNetV2 | **0,534** [0,488 ; 0,575] | 0,198 | 0,876 | 0,380 |
 | RSNA → PAUL, Nigeria (190) | ResNet50 / MobileNetV2 | 0,532 / 0,546 | 0,330 / 0,144 | 0,774 / 0,946 | |
 
+### Version 2 (24/10/2026) : 2 blocs dégelés, augmentation forte, 40 époques max., seuil choisi sur la validation
+
+Fichiers : `resultats/principal_v2/`. ResNet50 retenu à l'époque 22 (arrêt anticipé à 30), MobileNetV2 à l'époque 39. Durée ≈ 39 min et 38 min sur la RTX 5060.
+
+| Expérience | Modèle | AUC [IC95 %] | Sens. / Spéc. (seuil 0,5) | Sens. / Spéc. (seuil de validation) |
+|---|---|---|---|---|
+| test interne (2 574) | ResNet50 v2 | **0,980** [0,975 ; 0,984] (v1 : 0,921) | 0,910 / 0,955 | 0,935 / 0,926 (seuil 0,284) |
+| test interne (2 574) | MobileNetV2 v2 | **0,973** [0,968 ; 0,978] (v1 : 0,917) | 0,844 / 0,965 | 0,933 / 0,922 (seuil 0,171) |
+| … dont PAUL / RSNA | ResNet50 v2 | 0,991 / 0,972 | | |
+| … dont PAUL / RSNA | MobileNetV2 v2 | 0,987 / 0,962 | | |
+| **Nigeria (190)** | ResNet50 v2 | **0,709** [0,628 ; 0,784] (v1 : 0,586) | 0,546 / 0,720 | 0,670 / 0,634 |
+| **Nigeria (190)** | MobileNetV2 v2 | **0,705** [0,622 ; 0,776] (v1 : 0,603) | 0,516 / 0,753 | 0,722 / 0,548 |
+
+**Lecture de la v2 :**
+- **Le choix de la v2 est justifié par la VALIDATION** (AUC 0,983 contre 0,920 en v1), pas par le jeu nigérian. Le test nigérian a seulement été mesuré après coup, ce qui reste conforme à la règle.
+- **Le dégel et l'augmentation améliorent nettement le test interne** (0,92 → 0,98) **et le test externe** (0,59–0,60 → 0,70–0,71).
+- **Sur le jeu nigérian, la borne basse de l'intervalle (≈ 0,62) est maintenant au-dessus de 0,5** : le modèle fait clairement mieux que le hasard. Il reste cependant **loin** du score interne : l'écart de généralisation est réduit, pas éliminé.
+- Les intervalles de v1 et v2 sur le jeu nigérian se chevauchent légèrement (v1 jusqu'à 0,66–0,68, v2 à partir de 0,62). Avec 190 images, on parlera d'une **amélioration probable**, pas démontrée au sens statistique strict.
+- Le seuil choisi sur la validation équilibre sensibilité et spécificité sur le test interne. Sur le jeu nigérian, il augmente la sensibilité (0,55 → 0,67 pour ResNet50), au prix d'une spécificité plus basse.
+
 **Lecture (à dire honnêtement au jury) :**
 - **Le test interne est bon** (AUC ≈ 0,92). Il est mesuré sans fuite : par patient, sans doublon, contrôlé.
 - **Sur le jeu nigérian, le modèle est à peine meilleur que le hasard.** L'AUC vaut 0,59 à 0,60, et la borne basse de l'intervalle touche 0,50. Le score moyen donné aux pneumonies (≈ 0,50 à 0,53) est à peine plus élevé que celui des radios normales (≈ 0,43 à 0,46).
@@ -177,6 +197,7 @@ Backbone gelé, 20 époques, Adam (lr 1e-4), lots de 32, RTX 5060. Le seuil de d
 ---
 
 ### Journal des mises à jour
+- 24/10/2026 : version 2 (principal) terminée : test interne 0,98, Nigeria 0,71. Un premier lancement depuis PyCharm tournait sur le processeur (interpréteur .venv) ; relancé sur la carte graphique, avec une protection ajoutée.
 - 23/10/2026 : version 2 préparée (dégel, augmentation forte, seuil de validation) ; à lancer depuis PyCharm (configurations 6, 7, 8).
 - 23/10/2026 : sessions 2 et 3 (croisées) terminées ; biais de source confirmé.
 - 23/10/2026 : session 1 (principal) terminée ; résultats internes et nigérians ajoutés en section 6.
