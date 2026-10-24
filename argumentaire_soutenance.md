@@ -95,7 +95,7 @@ Dernière mise à jour : 23/10/2026 (données et split terminés, entraînement 
 - **Parades mises en place :**
   1. **Évaluation croisée** : apprendre sur PAUL et tester sur RSNA, puis l'inverse. ⏳ *Scores à ajouter.*
   2. **Test externe nigérian**, jamais vu. ⏳ *Scores à ajouter.*
-  3. ⏳ *Si besoin* : Grad-CAM, pour vérifier que le modèle regarde les poumons et pas les marqueurs ou les bords.
+  3. ✅ Grad-CAM réalisé (section 6) : les bonnes détections regardent le thorax ; les erreurs regardent souvent hors des poumons (abdomen, bords, marqueurs).
 
 **Q16. Pourquoi geler le backbone, puis le dégeler en version 2 ?** ✅ / ⏳
 - **v1 (gelé)** : seul le classifieur final apprend. C'est rapide et peu sujet au sur-apprentissage, mais les caractéristiques restent celles d'ImageNet (photos), pas des radios.
@@ -154,6 +154,25 @@ Fichiers : `resultats/principal_v2/`. ResNet50 retenu à l'époque 22 (arrêt an
 | **Nigeria (190)** | ResNet50 v2 | **0,709** [0,628 ; 0,784] (v1 : 0,586) | 0,546 / 0,720 | 0,670 / 0,634 |
 | **Nigeria (190)** | MobileNetV2 v2 | **0,705** [0,622 ; 0,776] (v1 : 0,603) | 0,516 / 0,753 | 0,722 / 0,548 |
 
+**Évaluations croisées en v2 (24/10/2026)** : `resultats/paul_vers_rsna_v2/` et `resultats/rsna_vers_paul_v2/`.
+
+| Expérience | Modèle | AUC autre source v1 → **v2** [IC95 % v2] | AUC Nigeria v1 → **v2** [IC95 % v2] |
+|---|---|---|---|
+| PAUL → RSNA | ResNet50 | 0,713 → **0,911** [0,897 ; 0,923] | 0,593 → **0,637** [0,557 ; 0,715] |
+| PAUL → RSNA | MobileNetV2 | 0,705 → **0,920** [0,908 ; 0,932] | 0,627 → **0,657** [0,576 ; 0,735] |
+| RSNA → PAUL | ResNet50 | 0,732 → **0,872** [0,848 ; 0,895] | 0,532 → **0,722** [0,648 ; 0,789] |
+| RSNA → PAUL | MobileNetV2 | 0,534 → **0,822** [0,794 ; 0,850] | 0,546 → **0,689** [0,609 ; 0,760] |
+
+- **Le dégel et l'augmentation forte réduisent fortement le biais de source.** Entre enfants et adultes, l'AUC passe d'environ 0,53–0,73 à 0,82–0,92. C'est l'effet recherché : des caractéristiques moins liées à l'appareil.
+- **L'écart subsiste néanmoins** : en v2, la validation dans la même source est à 0,97–0,995, contre 0,82–0,92 sur l'autre source.
+- **Correction d'une intuition de la v1 :** en v2, le meilleur modèle sur le jeu nigérian vient de **RSNA → PAUL** (ResNet50 : 0,722), pas du modèle appris sur les enfants (0,637–0,657). L'« indice pédiatrique » de la v1 **n'est pas confirmé** : avec 190 images, ces différences ne sont pas significatives (les intervalles se chevauchent).
+- **Au seuil 0,5, les modèles croisés sont mal calibrés** sur l'autre source (par exemple RSNA → PAUL MobileNetV2 : sensibilité 0,35, spécificité 0,98). Le seuil choisi sur la validation de la source d'origine ne corrige pas cela : un seuil ne se transfère pas d'une population à l'autre.
+
+**Grad-CAM (24/10/2026)** : `resultats/gradcam/` (ResNet50 et MobileNetV2 v2 ; test interne et Nigeria ; catégories VP, FN, FP, VN).
+- **Pneumonies bien détectées (VP)** : la zone chaude est le plus souvent **dans le thorax** (champs pulmonaires, région hilaire et cardiaque). Le modèle s'appuie sur la bonne région.
+- **Erreurs (FN, FP)** : l'attention sort souvent des poumons, vers l'abdomen sous le diaphragme, les bords ou les coins de l'image, l'épaule. Sur un faux négatif nigérian, elle se pose **près du marqueur « L » et du haut de l'image**. C'est le signe d'un **raccourci partiel** : quand le modèle se trompe, c'est souvent qu'il ne regarde pas les poumons.
+- **Limites à dire au jury :** Grad-CAM sur la dernière couche est **grossier** (grille 7×7), **qualitatif**, et porte sur peu d'images (2 par catégorie). C'est une illustration, pas une preuve statistique.
+
 **Lecture de la v2 :**
 - **Le choix de la v2 est justifié par la VALIDATION** (AUC 0,983 contre 0,920 en v1), pas par le jeu nigérian. Le test nigérian a seulement été mesuré après coup, ce qui reste conforme à la règle.
 - **Le dégel et l'augmentation améliorent nettement le test interne** (0,92 → 0,98) **et le test externe** (0,59–0,60 → 0,70–0,71).
@@ -178,7 +197,7 @@ Fichiers : `resultats/principal_v2/`. ResNet50 retenu à l'époque 22 (arrêt an
 2. Augmentation de données plus forte : contraste, luminosité, flou, bruit. Le but est d'imiter la diversité des appareils.
 3. Ajuster le seuil de décision sur la validation, plutôt que 0,5.
 4. ✅ Évaluations croisées faites (voir ci-dessus).
-5. Grad-CAM sur le jeu nigérian : où le modèle regarde-t-il ?
+5. ✅ Grad-CAM fait (voir ci-dessus).
 6. ⚠ Ne **jamais** régler le modèle en regardant les scores nigérians : sinon, ce n'est plus un test externe.
 
 ## 7. Limites à reconnaître spontanément ✅
@@ -197,6 +216,7 @@ Fichiers : `resultats/principal_v2/`. ResNet50 retenu à l'époque 22 (arrêt an
 ---
 
 ### Journal des mises à jour
+- 24/10/2026 : évaluations croisées v2 et Grad-CAM terminés ; biais de source fortement réduit mais pas éliminé.
 - 24/10/2026 : version 2 (principal) terminée : test interne 0,98, Nigeria 0,71. Un premier lancement depuis PyCharm tournait sur le processeur (interpréteur .venv) ; relancé sur la carte graphique, avec une protection ajoutée.
 - 23/10/2026 : version 2 préparée (dégel, augmentation forte, seuil de validation) ; à lancer depuis PyCharm (configurations 6, 7, 8).
 - 23/10/2026 : sessions 2 et 3 (croisées) terminées ; biais de source confirmé.
