@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -92,6 +93,7 @@ def main() -> None:
     ap.add_argument("--augmentation", choices=["legere", "forte"], default="legere",
                     help="forte = contraste, luminosité, gamma, flou, bruit, recadrage (imite la diversité des appareils)")
     ap.add_argument("--essai", action="store_true", help="essai rapide : 64 images par jeu, 1 époque")
+    ap.add_argument("--autoriser-cpu", action="store_true", help="accepter un entraînement sans carte graphique (très lent)")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
 
@@ -119,6 +121,13 @@ def main() -> None:
     np.random.seed(a.graine)
     torch.manual_seed(a.graine)
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    if device == "cuda":
+        print(f"Calcul sur la carte graphique : {torch.cuda.get_device_name(0)} (PyTorch {torch.__version__})")
+    else:
+        print(f"ATTENTION : PAS de carte graphique (PyTorch {torch.__version__}, interpréteur {sys.executable}). "
+              "L'entraînement serait environ 8 fois plus lent. Choisir l'interpréteur venv_gpu.")
+        if not (a.essai or a.autoriser_cpu):
+            raise SystemExit("Arrêt : relancer avec venv_gpu, ou ajouter --autoriser-cpu.")
     amp = device == "cuda" and a.degeler > 0  # précision mixte : accélère le ré-entraînement des blocs dégelés
     moy =np.array([0.485, 0.456, 0.406], dtype=np.float32)[:, None, None]
     ect = np.array([0.229, 0.224, 0.225], dtype=np.float32)[:, None, None]
