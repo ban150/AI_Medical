@@ -116,7 +116,7 @@ Dernière mise à jour : 23/10/2026 (données et split terminés, entraînement 
 **Q18. Pourquoi un test externe nigérian ?** ✅
 - Pour vérifier la **généralisation** à une autre population (enfants de moins de 5 ans), d'autres appareils et un autre pays, ce qui correspond au cadre du mémoire.
 - Source : Zenodo (DOI 10.5281/zenodo.14185822), UCH Ibadan, images confirmées par des radiologues, licence CC BY 4.0. MD5 vérifié.
-- Il n'est **jamais** utilisé en entraînement ni en validation, et il n'est évalué qu'une seule fois, à la fin.
+- Il n'est **jamais** utilisé en entraînement ni en validation, et aucun réglage n'est fait directement sur lui. **À dire honnêtement :** il a été mesuré à chaque expérience, et la version 2 a été décidée après avoir vu les résultats de la version 1. Son score peut donc être légèrement optimiste ; un second jeu externe (PediCXR) le confirmerait.
 - 21 ressemblances possibles avec l'entraînement ont été vérifiées à l'œil : **aucune copie**.
 
 **Q19. 190 images, est-ce suffisant ?** ⏳
@@ -216,6 +216,7 @@ Fichiers : `resultats/principal_v2/`. ResNet50 retenu à l'époque 22 (arrêt an
 ---
 
 ### Journal des mises à jour
+- 30/10/2026 : chapitre méthodologie rédigé ; Q18 corrigée sur l'usage du jeu nigérian.
 - 24/10/2026 : évaluations croisées v2 et Grad-CAM terminés ; biais de source fortement réduit mais pas éliminé.
 - 24/10/2026 : version 2 (principal) terminée : test interne 0,98, Nigeria 0,71. Un premier lancement depuis PyCharm tournait sur le processeur (interpréteur .venv) ; relancé sur la carte graphique, avec une protection ajoutée.
 - 23/10/2026 : version 2 préparée (dégel, augmentation forte, seuil de validation) ; à lancer depuis PyCharm (configurations 6, 7, 8).
